@@ -1,79 +1,164 @@
 # Smart Roster Management System
 
-A deterministic, browser-based operations roster scheduling, conflict detection, and change-management system built for multi-brand D2C operations teams (`Customer Support`, `Abandoned Cart Conversions`, `NDR`, `Retention`).
+> A deterministic monthly roster generation, validation, and operational repair engine designed for multi-client D2C operations.
+
+## Live Deployment & Submission
+
+* **Live Application:** [YOUR_VERCEL_URL_HERE]
+* **GitHub Repository:** https://github.com/ombhoite71-wq/datastraw-smart-roster
+* **Walkthrough Video (Loom/Drive):** [YOUR_LOOM_OR_DRIVE_VIDEO_LINK_HERE]
+* **Candidate:** Om Bhoite | [LinkedIn Profile](https://www.linkedin.com/in/om-bhoite-769a08363/)
 
 ---
 
-## Setup & Running Locally
+## 1. System Architecture & Workflow
 
-1. Install dependencies:
-   ```bash
-   npm install
-   ```
-2. Start the development server (runs on port `3000`):
-   ```bash
-   npm run dev
-   ```
-3. Build for production:
-   ```bash
-   npm run build
-   ```
+The core challenge of this assignment is that **brands operate on client calendars, but staff operate on labor and welfare rules**. If a single-resource brand operates Monday through Saturday, the assigned employee cannot simply take Sunday off if the brand also runs Sunday support, nor can 365-day brands shut down because staff need rest days.
 
----
+To solve this cleanly without state corruption or silent bugs:
 
-## Architecture & Pure Scheduling Engine (`src/lib/engine/`)
-
-- **`src/lib/engine/types.ts`**: Plain TypeScript interfaces (`Pod`, `Employee`, `Brand`, `Process`, `Assignment`, `CoverageRule`, `Holiday`, `Leave`, `Roster`, `RosterEntry`, `Setting`, `Issue`, `Suggestion`).
-- **`src/lib/engine/calendar.ts`**: Pure UTC calendar helpers, Monday–Sunday clipped week window builders, `isProcessOpen`, `requiredStaff`, and availability checks.
-- **`src/lib/engine/requirements.ts`**: Builds the `req[processId][date]` staffing matrix, resolves active assignees, and computes earned holiday comp-off credits.
-- **`src/lib/engine/validate.ts`**: Single source of truth (`validateRoster`) implementing all 7 `ERROR` codes (`COVERAGE_GAP`, `NO_ASSIGNED_EMPLOYEE`, `INSUFFICIENT_HEADCOUNT`, `MISSING_WEEKLY_OFF`, `MAX_CONSECUTIVE_DAYS`, `LEAVE_CONFLICT`, `FIXED_OFF_VIOLATED`) and 2 `WARNING` codes (`OVERLOAD`, `PREFERENCE_VIOLATED`).
-- **`src/lib/engine/generate.ts`**: Deterministic 7-step generator (`generateRoster`) with tightness ordering, candidate scoring, mandatory welfare weekly-off placement, and a 3-iteration zero-violation repair pass.
-- **`src/lib/engine/suggest.ts`**: Simulate-before-suggest engine (`suggestFixes`) evaluating off-day swaps, same-pod/floater call-ins, and explicit manager minimum waivers against a copy of the roster, returning only fixes that introduce `0` new `ERROR`s.
+1. **Decoupled Data Architecture:** `Brand`, `Process`, `Employee`, and `Assignment` are modeled independently. Operating rules live on the `Process`, not on the person.
+2. **Deterministic Engine (`src/lib/engine/`):** Pure TypeScript functions with zero UI or DOM dependencies.
+   * `matrix.ts`: Generates day-by-day required staffing counts.
+   * `generator.ts`: 7-stage deterministic assignment solver prioritizing constrained single-resource workers first, then pool workers, then floaters.
+   * `validator.ts`: Pure verification pass auditing 7 hard `ERROR` types and 2 soft `WARNING` types.
+   * `suggestions.ts`: Pre-flight simulation engine that validates potential shift patches *before* presenting them to the user.
+3. **No Phantom State:** All issues (coverage gaps, consecutive streak breaches) are evaluated on the fly by `validateRoster(roster, data)`. The roster state contains only concrete shifts (`WORK`, `WEEKLY_OFF`, `HOLIDAY`, `LEAVE`, `COMP_OFF`), making race conditions impossible.
 
 ---
 
-## Answers to the 8 Assessment Questions ("Tell Us How You Think")
+## 2. Quickstart & Local Setup
 
-### 1. How did you model employees, brands, processes, pods and their relationships?
-- **Pod (`1:N` Employee, `1:1` Lead):** Each `Employee` belongs to one `Pod` (`podId`), and each `Pod` designates a supervisory lead (`leadEmployeeId`, `isPodLead = true`) who does not count toward process coverage by default.
-- **Brand (`1:N` Process):** A `Brand` is a logical container for one or more operational `Process` entities (`CS`, `ACC`, `NDR`, `RETENTION`). Operating calendars (`openDays`, `operatesOnHolidays`, `minStaff`, and `CoverageRule` overrides) live on `Process` rather than `Brand` so processes within the same brand can follow different schedules (e.g., `M2 Glowbar CS` open 365 days with Fri–Sun `minStaff = 2`, while `M2 Glowbar ACC` operates Mon–Sat only).
-- **Employee (`N:M` Process via `Assignment`):** Many-to-many `Assignment` records (`role: PRIMARY | BACKUP`) allow a single employee to own multiple processes for one brand, own multiple brands (`E05`, `E18`), share a high-volume process (`E22 + E23`), or act as a cross-brand backup floater (`E31`, `E32`).
+```bash
+# Clone the repository
+git clone https://github.com/ombhoite71-wq/datastraw-smart-roster.git
+cd datastraw-smart-roster
 
-### 2. How does your system generate a roster and decide whether it satisfies the constraints?
-- **Generation (`generateRoster`):**
-  1. Builds the month's dates and `req[processId][date]` matrix.
-  2. Prefills locked `APPROVED` leaves/comp-offs, preserves locked manual cells, marks days where all of an employee's processes are closed as `HOLIDAY` or `WEEKLY_OFF`, and marks remaining days `WORK`.
-  3. Sorts active employees deterministically by tightness: sole process assignees first, then multi-brand primary owners, then floaters and shared staff, tie-breaking by ID.
-  4. For each employee-week requiring an off day, scores every eligible day using `hardViolations * 1000 + preferenceViolation * 10 + fairnessPenalty + spacingPenalty + coAssigneeTightnessPenalty` and places the lowest-scoring `WEEKLY_OFF`.
-  5. Runs up to 3 repair iterations to shift unlocked `AUTO` weekly offs within their week when doing so resolves a coverage gap or streak violation with zero new violations.
-- **Validation (`validateRoster`):** Acts as the single source of truth called after generation, after every manual cell click, and after every data change.
+# Install dependencies
+npm install
 
-### 3. How did you handle single-resource brands versus brands with multiple employees?
-- Both are handled uniformly by the same data model and scoring rules without special-casing brand IDs:
-  - **Single-resource Mon–Sat brands (`S01`–`S12`):** All processes are closed on Sundays and public holidays, so Step 2 prefill naturally assigns `WEEKLY_OFF` on Sundays and `HOLIDAY` on public holidays with zero coverage gaps.
-  - **Single-resource 7-day / 365-day brands (`S13`–`S20`):** Primary owners (`E12`–`E18`) are paired with `BACKUP` floaters (`E31`, `E32`). Tightness ordering and co-assignee spacing stagger the primary owners' weekday offs across Monday–Thursday so the floater covers at most 1–2 brands per day and takes their own weekly off on Friday–Sunday when primary owners work.
-  - **Multi-employee brands (`M1`–`M5`):** Shared assignees (`M2-CS`, `M4-CS`, `M5-CS`) and cross-trained brand teammates (`M1`) automatically stagger their off days on days where `working - 1 >= requiredStaff`.
+# Start development server
+npm run dev
 
-### 4. What happens when an employee managing all processes for a brand is unavailable on a required working day?
-- When an `APPROVED` leave is recorded (e.g., `E02` on Tuesday `08/12/2026` for `S02 - VedaBotanics`), that employee's cell is locked as `LEAVE`.
-- `validateRoster` immediately flags a `COVERAGE_GAP` (`ERROR`) on each affected process of that brand with the exact cause (`"E02 - Vivaan Sharma on approved leave"`).
-- `suggestFixes` simulates candidate fixes on a copy of the roster (calling in a same-pod employee or backup floater who is off that day, or an explicit manager waiver of minimum staffing) and presents only verified 0-error options with one-click **Apply Validated Fix**.
+# Run full TypeScript verification & production build
+npm run build
+```
 
-### 5. How does your system handle conflicting requirements or insufficient staffing?
-- **Never hides conflicts:** Welfare rules (weekly off) and approved leaves are never silently dropped to make coverage look green. If placing a mandatory weekly off causes a shortage (e.g., when removing floater `E31` from 365-day brand `S17`), the generator still places the weekly off and lets `validateRoster` surface the `COVERAGE_GAP` `ERROR`.
-- **Structural vs. Date-Specific Distinction:** The validator separates structural configuration errors (`NO_ASSIGNED_EMPLOYEE` when `assigned === 0`, `INSUFFICIENT_HEADCOUNT` when `minStaff > assigned`) from date-specific operational shortages (`COVERAGE_GAP`).
-- **Mandatory vs. Soft Preferences:** Hard coverage beats soft `preferredOffDays` (`E23` works Saturday on `M2-CS` to satisfy `minStaff = 2`, raising a yellow `PREFERENCE_VIOLATED` `WARNING` rather than an `ERROR`).
+---
 
-### 6. Which parts did you automate, and which did you leave under human control, and why?
-- **Automated:** Monthly prefill, tightness-ordered weekly-off placement, multi-iteration gap/streak repair, instant revalidation on every edit, and pre-simulated candidate fix ranking.
-- **Human Control:** Approving pending leaves, applying suggested fixes (swap off, backup call-in earning a comp-off, or waiving minimum headcount for a date), locking manual cell overrides, and confirming roster publication when unresolved `ERROR`s exist. Operations managers own client SLA trade-offs and overtime/comp-off budgets, so the system simulates consequences and lets the manager decide.
+## 3. Tell Us How You Think (Architectural Decisions & Reasoning)
 
-### 7. If the company doubled its team and brand count, what would you change?
-- **Persistence & Concurrency:** Move from single-browser storage to PostgreSQL with row-level optimistic locking on `RosterEntry` edits and audit logs for manual overrides.
-- **Constraint Solver Option:** While our $O(E \times W \times D)$ greedy + 3-pass local repair runs in $< 15\text{ms}$ for 70+ employees and 50+ brands, scaling to hundreds of cross-assigned floaters with complex skill matrices would benefit from an MILP / CP-SAT solver pass behind a background worker queue.
-- **Virtualized Grid:** Use row/column windowing for smooth rendering of 100+ employee rows across 31 columns.
+### Q1: How did you model employees, brands, processes, pods, and their relationships?
 
-### 8. With one more week, what would you improve first?
-1. **Multi-Month Comp-Off Ledger:** Track earned holiday/call-in comp-off balances across months with expiration dates and one-click scheduling of accrued comp-offs.
-2. **CSV / Excel Import & Export:** Bulk upload for monthly leave requests and downloadable brand/pod schedule sheets.
-3. **What-If Sandbox Mode:** Allow managers to clone a published roster into a draft branch to test hiring/reassignment scenarios before committing changes.
+I realized early on that linking employees directly to brands would fall apart as soon as a brand had multiple functions with different hours (like customer service running 7 days a week, but billing/escalations only running Monday to Friday).
+
+So I made **Process** the central operational unit:
+* **Brand:** A high-level client entity (e.g., `M2 - Glowbar` or `S01 - PureGlow`).
+* **Process:** Child of a brand carrying the actual operational schedule: `openDays` (e.g., Mon–Sat vs. 365 days), `operatesOnHolidays`, and `minStaff`.
+* **Pod:** Organizational group (`P1` to `P4`) led by a Pod Lead (`L1`–`L4`). I set `podLeadsCountForCoverage = false` so supervisory staff are never used to mask daily headcount shortages.
+* **Employee:** Holds pod affiliation, soft preferred off-days, and hard fixed off-days (`fixedOffDay`).
+* **Assignment:** A join relationship connecting an `employeeId` to a `processId` with a role (`PRIMARY` or `BACKUP`).
+
+This structure cleanly handles single-resource owners (`E01` on all `S01` processes), multi-employee brands (staggered across `M1`–`M5`), and floater backups (`E31`, `E32`) stepping in during off-days without altering brand ownership.
+
+---
+
+### Q2: How does your system generate a roster and determine whether it satisfies the required constraints?
+
+Instead of a slow, non-deterministic random solver, I built a deterministic 7-stage pipeline in `src/lib/engine/generator.ts`:
+
+1. **Target Matrix Calculation:** First, compute exactly how many people each process needs for all 31 days in the month based on its operating calendar and holiday rules.
+2. **Lock Immovable Days:** Approved leaves (`LEAVE`), scheduled comp-offs (`COMP_OFF`), and brand-wide closed days (`HOLIDAY`) are locked down first.
+3. **Tightness-First Scheduling:** Sort employees by how constrained they are. Single-resource brand owners are scheduled first because they have zero internal swap flexibility; multi-resource pools and floaters are scheduled later.
+4. **Scored Welfare Off-Day Placement:** For each 7-day Monday–Sunday block, evaluate candidate weekly-off days using a penalty score:
+   ```text
+   Score = (Coverage Gap * 1000) + (Preference Clash * 10) + Spacing Penalties
+   ```
+5. **No Cheating on Welfare:** If giving someone their required weekly off causes a coverage gap on a 7-day brand, the engine **still gives them the day off**. It intentionally surfaces a red `COVERAGE_GAP` in the validator rather than silently violating labor laws to make the schedule look green.
+6. **Bounded 3-Pass Local Swapping:** An automated pass looks for unlocked days in the same week to swap off-days with available slack days.
+7. **On-Demand Validation:** Finally, `validateRoster()` audits the generated matrix. It tests for maximum 6 consecutive work days, 1 mandatory rest day per week, minimum staff coverage, orphan processes, and preferred rest day adherence.
+
+---
+
+### Q3: How did you handle the difference between single-resource brands and brands with multiple employees?
+
+* **Single-Resource Brands (80% of portfolio / 20 brands):**
+  One dedicated person handles all functions.
+  * For standard Monday–Saturday brands (like `S01`–`S10`), their mandatory weekly off maps naturally to the client's closed day (Sunday).
+  * For 7-day single-resource brands (like `S11`–`S20`), one human physically cannot cover all 7 days without violating the 6-consecutive-day limit. The system pairs these accounts with designated floaters (`E31 Devika Hegde` and `E32 Akash Malhotra`) who act as pre-assigned `BACKUP` staff to cover the primary owner's rest day.
+* **Multi-Employee Brands (20% of portfolio / 5 brands):**
+  Brands like `M2 Glowbar` or `M1 UrbanClad` have multiple people assigned to shared processes. Here, the engine staggers weekly offs across the assigned team so that days with higher minimum staffing (like Glowbar CS requiring 2 staff on Fri/Sat/Sun) always maintain required headcount.
+
+---
+
+### Q4: What happens when an employee managing all processes for a brand is unavailable on a required working day?
+
+When a single-resource owner takes an approved leave on an active operating day:
+1. The engine locks that cell to `LV` and re-runs validation.
+2. The validator immediately fires a red `COVERAGE_GAP` error for that date, detailing the root cause (e.g., *"S02 - ChatCraft CS requires 1 staff, but only 0 working. Cause: E02 Vivaan Sharma on approved leave"*).
+3. The suggestion engine (`suggestFixes`) scans available backups within the pod or company-wide floaters, running a test validation on each candidate.
+4. If an eligible floater is found, the UI presents an **"Apply Validated Fix"** action. One click assigns the replacement, grants a compensatory credit if necessary, clears the error, and logs it into the **Issues Solved** collapsible dropdown.
+5. If no backup is available, it explicitly flags *"Needs external resource"* and offers a managerial override button to waive coverage for that day.
+
+---
+
+### Q5: How does your system handle conflicting requirements or insufficient staffing?
+
+I followed a strict design principle: **Never fail silently and never fake a valid schedule.**
+
+* **Hard Errors vs. Soft Warnings:** Labor welfare (1 off per week, maximum 6 consecutive days) and client minimum coverage are non-negotiable hard `ERROR` conditions. Soft employee preferences (`preferredOffDays`) are `WARNING` conditions. When they conflict, business continuity wins, the shift is scheduled, and a yellow warning is shown explaining why the preference was overridden.
+* **Structural Shortages:** In edge cases like Scenario S8 (where both assigned workers on a brand are on leave on the same day), the system does not silently remove the client's requirement. It highlights the deficit, flags the exact gap count (`0/2 active`), and requires an explicit managerial action (either reassigning a cross-pod agent or confirming a formal coverage waiver).
+
+---
+
+### Q6: Which parts of the process did you automate, and which did you leave under human control? Why?
+
+* **Automated:** Baseline shift calculation, constraint checking, holiday comp-off credit tracking (`+CO` for staff working on holidays like Christmas for 365-day brands), candidate fix simulation, and real-time error auditing. These involve repetitive combinatorial arithmetic that software handles quickly and reliably.
+* **Human Control:** Approving leaves, publishing rosters, overriding locked shifts, and granting operational coverage waivers. In a real B2B service agency, deciding whether to run short-staffed or pay emergency overtime to an external contractor is a business judgment call that software should inform, not decide unilaterally.
+
+---
+
+### Q7: If the company doubled its team and brand count, what would you change about your solution?
+
+If scaled to 70+ employees and 50+ brands:
+1. **Pod-Partitioned Solver Workers:** Since 90% of assignments and backups are constrained within pods, I would break the single generator into 4 parallel Web Worker jobs (one per pod), solving them concurrently in the browser before running a light global pass for cross-pod floaters.
+2. **Sub-Day & Split Shifts:** Currently, shifts are modeled as daily units (`WORK`, `OFF`). I would introduce intraday time blocks (e.g., 08:00–16:00 and 14:00–22:00) to support fractional shifts and lunch-hour handovers.
+3. **PostgreSQL + Row-Level Locking:** Replace the client-side state with a Node.js/PostgreSQL backend using Prisma and WebSockets. If two Pod Leads edit December Week 2 simultaneously, optimistic locking would prevent schedule overwrite collisions.
+
+---
+
+### Q8: If you had one additional week to work on this, what would you improve first?
+
+1. **Interactive Timeline / Gantt Drag-and-Drop:** Replace the table cells with an interactive drag-and-drop timeline grid (using `@dnd-kit` or FullCalendar) so managers can drag a floater onto a sick employee's slot with real-time visual clash indicators.
+2. **Dynamic Cross-Pod Floater Bidding & Balance:** A smart recommendation algorithm that ranks available backup workers across the whole company based on who has worked the fewest weekend shifts and who has the lowest burnout index.
+3. **Full Native Bi-Directional Google Sheets Sync:** Rather than one-way CSV export, integrate the Google Sheets API via OAuth so publishing a roster updates the live operations team sheet in real time and imports supervisor leave approvals back into the app.
+4. **Employee Self-Service Shift Swapping:** A dedicated view for agents to propose direct 1-to-1 shift swaps with pod teammates, automatically screening both workers' schedules for consecutive-day breaches before notifying the Pod Lead for sign-off.
+5. **Historical Fairness & Fatigue Analytics:** A rolling 3-month fairness dashboard tracking who worked major public holidays (like Diwali or Christmas), who had split rest days, and comp-off balances to prevent favoritism across monthly roster cycles.
+
+---
+
+## 4. Documented Assumptions
+
+1. **Weekly-Off Window:** A "week" is strictly Monday 00:00 through Sunday 23:59. Every employee must receive at least 1 rest day in this 7-day period. Partial boundary weeks (e.g., Dec 1–6) require an off-day only if they contain 4 or more working days.
+2. **Consecutive Days Limit:** An employee can work a maximum of 6 consecutive days. Any rest day (`WEEKLY_OFF`, `HOLIDAY`, `LEAVE`, or `COMP_OFF`) resets the streak counter.
+3. **Public Holiday Comp-Offs:** Employees working a 365-day brand process on a company public holiday (Founders' Day Dec 15, Christmas Eve Dec 24, Christmas Day Dec 25) are flagged with `+CO` indicating an earned compensatory day credit.
+4. **Pod Leads:** Pod Leads (`L1`–`L4`) act in a supervisory capacity and are never counted toward process minimum staffing thresholds (`podLeadsCountForCoverage = false`).
+5. **Floaters:** Employees `E31` and `E32` are unassigned in the baseline seed and operate as floating backups. They satisfy single-resource weekend off-day coverage when assigned with role `BACKUP`.
+
+---
+
+## 5. Built-in Automated Verification Suite
+
+The application includes an in-browser verification suite accessible via the **System Verification** tab that runs scenarios S1 through S11 on-demand:
+
+* **S1:** Generate Dec 2026 baseline on seed data -> `0 ERRORS` (with expected soft preference warnings).
+* **S2:** Sunday-off brands closed Sundays -> Sunday required headcount is `0`.
+* **S3:** 365-day brand owner (`E16`) scheduled on Christmas -> marked `WORK` with comp-off credit `+CO`.
+* **S4:** Glowbar CS has both `E22` & `E23` working Fri/Sat/Sun -> verifies 2/2 staffing.
+* **S5:** Deterministic test: Running generation twice produces identical schedules.
+* **S6:** Regeneration preserves locked manual overrides and approved leaves.
+* **S7:** Approving leave for single-resource owner (`E02`) on 08/12/2026 -> triggers red `COVERAGE_GAP`.
+* **S8:** Both Glowbar CS workers taking leave on 12/12/2026 -> triggers red `COVERAGE_GAP` and flags external backup needed.
+* **S9:** Removing floater `E31` from 365-day brand -> validator catches weekly coverage deficit.
+* **S10:** High staffing demand on limited pod -> catches `INSUFFICIENT_HEADCOUNT`.
+* **S11:** Brand process with no assigned staff -> validator reports `NO_ASSIGNED_EMPLOYEE`.
