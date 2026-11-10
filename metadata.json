@@ -1,0 +1,6 @@
+{
+  "name": "Smart Roster Management System",
+  "description": "Deterministic operations roster scheduling, validation, and coverage management engine for multi-brand D2C support teams.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
