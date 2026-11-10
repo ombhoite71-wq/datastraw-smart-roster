@@ -4,9 +4,9 @@
 
 ## Live Deployment & Submission
 
-* **Live Application:** [YOUR_VERCEL_URL_HERE]
-* **GitHub Repository:** https://github.com/ombhoite71-wq/datastraw-smart-roster
-* **Walkthrough Video (Loom/Drive):** [YOUR_LOOM_OR_DRIVE_VIDEO_LINK_HERE]
+* **Live Application:** (https://datastraw-smart-roster-iota.vercel.app)
+* **GitHub Repository:** (https://github.com/ombhoite71-wq/datastraw-smart-roster)
+* **Walkthrough Video (Drive):** (https://drive.google.com/file/d/1UF09T4xyLWQ-zzx-NUj01tO9UIeMgEQr/view?usp=sharing)
 * **Candidate:** Om Bhoite | [LinkedIn Profile](https://www.linkedin.com/in/om-bhoite-769a08363/)
 
 ---
